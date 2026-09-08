@@ -51,5 +51,6 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: ./app
+          platforms: linux/amd64
           push: true
           tags: ghcr.io/${{ github.repository }}:${{ github.sha }}
