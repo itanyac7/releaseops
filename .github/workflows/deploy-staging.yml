@@ -1,0 +1,93 @@
+name: Deploy staging
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+    branches:
+      - main
+
+jobs:
+  deploy-staging:
+    name: Deploy SHA to staging
+    runs-on: ubuntu-latest
+
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}:${{ github.event.workflow_run.head_sha }}
+      STAGING_URL: https://releaseops-staging.onrender.com
+
+    steps:
+      - name: Trigger Render deploy
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          set -euo pipefail
+
+          curl --fail-with-body --silent --show-error \
+            --get \
+            --data-urlencode "imgURL=${IMAGE}" \
+            "$RENDER_DEPLOY_HOOK_URL"
+
+      - name: Wait for deployed SHA
+        run: |
+          set -euo pipefail
+
+          expected_sha="${{ github.event.workflow_run.head_sha }}"
+
+          echo "Waiting for ${expected_sha} to become live..."
+
+          for attempt in {1..30}; do
+            echo "Attempt ${attempt}/30"
+
+            response="$(curl --fail --silent \
+              "${STAGING_URL}/api/version" || true)"
+
+            echo "Current response:"
+            echo "${response}"
+
+            if echo "${response}" | grep -q "\"version\":\"${expected_sha}\""; then
+              echo "Expected SHA is live in staging."
+              exit 0
+            fi
+
+            sleep 10
+          done
+
+          echo "Expected SHA did not become live within 5 minutes."
+          exit 1
+
+      - name: Smoke test health
+        run: |
+          set -euo pipefail
+
+          response="$(curl --fail --silent --show-error \
+            "${STAGING_URL}/health")"
+
+          echo "Health response:"
+          echo "${response}"
+
+          echo "${response}" | grep -q '"status":"healthy"'
+
+          echo "Health check passed."
+
+      - name: Smoke test version
+        run: |
+          set -euo pipefail
+
+          response="$(curl --fail --silent --show-error \
+            "${STAGING_URL}/api/version")"
+
+          echo "Version response:"
+          echo "${response}"
+
+          expected_sha="${{ github.event.workflow_run.head_sha }}"
+
+          echo "${response}" | grep -q '"environment":"staging"'
+          echo "${response}" | grep -q '"service":"releaseops-staging"'
+          echo "${response}" | grep -q "\"version\":\"${expected_sha}\""
+
+          echo "Version, service, and environment checks passed."
