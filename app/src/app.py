@@ -1,13 +1,21 @@
 from flask import Flask, jsonify
 
+from src.config import Config
+
 app = Flask(__name__)
 
+config = Config()
+app.config.from_mapping(
+    SERVICE_NAME=config.SERVICE_NAME,
+    APP_VERSION=config.APP_VERSION,
+    ENVIRONMENT=config.ENVIRONMENT,
+)
 
 @app.get("/")
 def home():
     return jsonify(
         {
-            "service": "releaseops",
+            "service": app.config["SERVICE_NAME"],
             "message": "DevOps showcase API",
         }
     )
@@ -22,9 +30,9 @@ def health():
 def version():
     return jsonify(
         {
-            "service": "releaseops",
-            "version": "0.1.0",
-            "environment": "development",
+            "service": app.config["SERVICE_NAME"],
+            "version": app.config["APP_VERSION"],
+            "environment": app.config["ENVIRONMENT"],
         }
     )
 
