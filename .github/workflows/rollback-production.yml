@@ -1,0 +1,111 @@
+name: Rollback production
+
+on:
+  workflow_dispatch:
+    inputs:
+      rollback_sha:
+        description: "Full 40-character SHA of the known-good image to restore"
+        required: true
+        type: string
+
+jobs:
+  rollback-production:
+    name: Roll back production
+    runs-on: ubuntu-latest
+
+    environment:
+      name: production
+
+    env:
+      PRODUCTION_URL: https://releaseops-production.onrender.com
+
+    steps:
+      - name: Validate rollback SHA
+        env:
+          ROLLBACK_SHA: ${{ inputs.rollback_sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "${ROLLBACK_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Invalid rollback SHA: ${ROLLBACK_SHA}"
+            echo "Expected a full 40-character lowercase Git SHA."
+            exit 1
+          fi
+
+          echo "Rollback target: ${ROLLBACK_SHA}"
+
+      - name: Trigger Render production rollback
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_PRODUCTION_DEPLOY_HOOK_URL }}
+          ROLLBACK_SHA: ${{ inputs.rollback_sha }}
+          IMAGE: ghcr.io/${{ github.repository }}:${{ inputs.rollback_sha }}
+        run: |
+          set -euo pipefail
+
+          echo "Deploying immutable image:"
+          echo "${IMAGE}"
+
+          curl --fail-with-body --silent --show-error \
+            --get \
+            --data-urlencode "imgURL=${IMAGE}" \
+            "$RENDER_DEPLOY_HOOK_URL"
+
+      - name: Wait for rollback SHA
+        env:
+          ROLLBACK_SHA: ${{ inputs.rollback_sha }}
+        run: |
+          set -euo pipefail
+
+          echo "Waiting for ${ROLLBACK_SHA} to become live..."
+
+          for attempt in {1..30}; do
+            echo "Attempt ${attempt}/30"
+
+            response="$(curl --fail --silent \
+              "${PRODUCTION_URL}/api/version" || true)"
+
+            echo "Current response:"
+            echo "${response}"
+
+            if echo "${response}" | grep -q "\"version\":\"${ROLLBACK_SHA}\""; then
+              echo "Rollback SHA is live in production."
+              exit 0
+            fi
+
+            sleep 10
+          done
+
+          echo "Rollback SHA did not become live within 5 minutes."
+          exit 1
+
+      - name: Smoke test health
+        run: |
+          set -euo pipefail
+
+          response="$(curl --fail --silent --show-error \
+            "${PRODUCTION_URL}/health")"
+
+          echo "Health response:"
+          echo "${response}"
+
+          echo "${response}" | grep -q '"status":"healthy"'
+
+          echo "Health check passed."
+
+      - name: Verify rollback version
+        env:
+          ROLLBACK_SHA: ${{ inputs.rollback_sha }}
+        run: |
+          set -euo pipefail
+
+          response="$(curl --fail --silent --show-error \
+            "${PRODUCTION_URL}/api/version")"
+
+          echo "Version response:"
+          echo "${response}"
+
+          echo "${response}" | grep -q '"environment":"production"'
+          echo "${response}" | grep -q '"service":"releaseops-production"'
+          echo "${response}" | grep -q "\"version\":\"${ROLLBACK_SHA}\""
+
+          echo "Rollback verification passed."
