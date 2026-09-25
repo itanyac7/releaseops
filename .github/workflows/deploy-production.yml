@@ -10,9 +10,10 @@ on:
       - main
 
 jobs:
-    deploy-production:
+  deploy-production:
     name: Promote SHA to production
     runs-on: ubuntu-latest
+
     concurrency:
       group: production-deployment
       cancel-in-progress: false
@@ -42,7 +43,8 @@ jobs:
           echo "${response}" | grep -q "\"version\":\"${expected_sha}\""
 
           echo "Staging is running the promoted SHA: ${expected_sha}"
-      - name: Trigger Render production deploy
+
+      - name: Trigger Render production deploy      - name: Trigger Render production deploy
         env:
           RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_PRODUCTION_DEPLOY_HOOK_URL }}
         run: |
