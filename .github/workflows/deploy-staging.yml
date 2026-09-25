@@ -14,6 +14,10 @@ jobs:
     name: Deploy SHA to staging
     runs-on: ubuntu-latest
 
+    concurrency:
+      group: staging-deployment
+      cancel-in-progress: true
+
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
 
     env:

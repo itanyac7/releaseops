@@ -10,9 +10,12 @@ on:
       - main
 
 jobs:
-  deploy-production:
+    deploy-production:
     name: Promote SHA to production
     runs-on: ubuntu-latest
+    concurrency:
+      group: production-deployment
+      cancel-in-progress: false
 
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
 
@@ -24,6 +27,21 @@ jobs:
       PRODUCTION_URL: https://releaseops-production.onrender.com
 
     steps:
+      - name: Verify staging is running the promoted SHA
+        run: |
+          set -euo pipefail
+
+          expected_sha="${{ github.event.workflow_run.head_sha }}"
+
+          response="$(curl --fail --silent \
+            "https://releaseops-staging.onrender.com/api/version")"
+
+          echo "Staging response:"
+          echo "${response}"
+
+          echo "${response}" | grep -q "\"version\":\"${expected_sha}\""
+
+          echo "Staging is running the promoted SHA: ${expected_sha}"
       - name: Trigger Render production deploy
         env:
           RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_PRODUCTION_DEPLOY_HOOK_URL }}
